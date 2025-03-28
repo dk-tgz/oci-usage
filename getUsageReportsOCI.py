@@ -40,14 +40,36 @@ def get_object_list(config_file_profile):
     # read the config file and create the object storage client
     config = oci.config.from_file(oci.config.DEFAULT_LOCATION, config_file_profile)
     object_storage = oci.object_storage.ObjectStorageClient(config)
-    
     usage_report_bucket = config["tenancy"]
 
-    # added fields name, timeCreated and size to the report_bucket_objects Object so we can filter using them
-    report_bucket_objects = object_storage.list_objects(usage_report_namespace, usage_report_bucket, fields="name,timeCreated,size", prefix=prefix_file)
+    all_objects = []
+    next_start_with = None
 
-    return {"object_storage": object_storage, "report_bucket_objects": report_bucket_objects, "usage_report_bucket": usage_report_bucket}
+    while True:
+        response = object_storage.list_objects(
+            namespace_name=usage_report_namespace,
+            bucket_name=usage_report_bucket,
+            fields="name,timeCreated,size",
+            prefix=prefix_file,
+            start=next_start_with
+        )
 
+        if response.data.objects:
+            all_objects.extend(response.data.objects)
+
+        if not response.data.next_start_with:
+            break
+
+        next_start_with = response.data.next_start_with
+
+    combined_response = response
+    combined_response.objects = all_objects
+
+    return {
+        "object_storage": object_storage,
+        "report_bucket_objects": combined_response,
+        "usage_report_bucket": usage_report_bucket
+    }
 
 def filter_reports(objects, destintation_path, **kwargs):
     """
@@ -62,7 +84,7 @@ def filter_reports(objects, destintation_path, **kwargs):
     # print(objects["report_bucket_objects"].data.objects)
     
     # loop over all objects in bucket
-    for o in objects["report_bucket_objects"].data.objects:
+    for o in objects["report_bucket_objects"].objects:
         # print(f"Found file {o.name} created on {o.time_created.date()}")
                 
         # use the date filters to download only the desired reports
